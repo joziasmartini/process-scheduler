@@ -10,7 +10,9 @@
 int
 sys_fork(void)
 {
-  return fork();
+  int tickets;
+  argint(0,&tickets);
+  return fork(tickets);
 }
 
 int
@@ -88,4 +90,10 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+int
+sys_cps(void) 
+{
+  return cps();
 }

@@ -1,0 +1,39 @@
+Hesron Paulo Bressiani
+Jozias Martini
+Obenson
+
+Olá professor
+
+Pra rodar o trabalho entre na pasta que ele foi extraido e rode o comando abaixo:
+
+make
+
+Após terminar de rodar o comando rode esse outro abaixo:
+
+make qemu-nox
+
+Esse qemu-nox vai abrir o xv6 no próprio terminal, após isso rode o comando abaixo:
+
+test &; test &; test &;
+
+E logo após rodar o comando acima, rode o comando abaixo:
+
+ps
+
+Esse comando acima vai mostrar os processos que foram alocados e seu estado, junto com o número de tickets
+
+Essa função vimos em um vídeo do Youtube onde ensinava a fazer um High Priority Scheduler,
+e ai resolvemos colocar no trabalho pra ajudar no debug e também para apresentar ao senhor.
+
+A função test.c também vi no mesmo vídeo, basicamente é um arquivo que cria vários processos e que demanda um certo processamento,
+assim fica mais fácil para ver os processos no comando ps então resolvi adicionar ao trabalho.
+
+Porém mesmo assim com essas funções não sabemos dizer se o scheduler está funcionando corretamente.
+
+Vídeos que usamos como base e que possui as funções que ajudaram nos testes:
+
+https://www.youtube.com/watch?v=DZ0-GMtOtEc
+
+https://www.youtube.com/watch?v=21SVYiKhcwM
+
+https://www.youtube.com/watch?v=hIXRrv-cBA4

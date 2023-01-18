@@ -1,3 +1,8 @@
+#define MIN_TICKETS 1           // Quantia minima de tickets do processo
+#define MAX_TICKETS 100         // Quantia maxima de tickets do processo 
+#define DEFAULT_TICKETS 10      // Quantia default de tickets do processo
+// Analisar se deve ficar aqui essas constantes
+
 // Per-CPU state
 struct cpu {
   uchar apicid;                // Local APIC ID
@@ -49,6 +54,7 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  int tickets;                 // Quantia de tickets do processo
 };
 
 // Process memory is laid out contiguously, low addresses first:

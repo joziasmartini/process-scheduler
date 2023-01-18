@@ -6,6 +6,7 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "stdio.h"
 
 struct {
   struct spinlock lock;
@@ -66,12 +67,19 @@ myproc(void) {
 }
 
 //PAGEBREAK: 32
+// Parte importante, é aqui que ele aloca um processo novo no estágio embrionario
+// e o coloca na fila de processos prontos para serem executados.
+// Aqui que devemos colocar o código para alocar tickets para os processos.
+// A função allocproc() é chamada pela função fork() e pela função exec().
+// A função fork() cria um novo processo filho, que é uma cópia do processo pai.
+// A função exec() carrega um novo programa no processo atual.
+
 // Look in the process table for an UNUSED proc.
 // If found, change state to EMBRYO and initialize
 // state required to run in the kernel.
 // Otherwise return 0.
 static struct proc*
-allocproc(void)
+allocproc(int tickets)
 {
   struct proc *p;
   char *sp;
@@ -87,8 +95,21 @@ allocproc(void)
 
 found:
   p->state = EMBRYO;
-  p->pid = nextpid++;
+  p->pid = nextpid++; 
 
+  if(!tickets){                          // Se o não vier valor do parametro, o valor de tickets será o default
+    p->tickets = DEFAULT_TICKETS;
+  }
+  else if(tickets<0){                    // Se o valor do parametro for negativo, o valor de tickets será o valor mínimo
+    p->tickets = MIN_TICKETS;
+  }
+  else if(tickets>MAX_TICKETS){          // Se o valor do parametro for maior que o máximo, o valor de tickets será o valor máximo
+    p->tickets = MAX_TICKETS;
+  }
+  else{                                  // Se o valor do parametro for válido, o valor de tickets será o valor do parametro
+    p->tickets=tickets;
+  }
+  
   release(&ptable.lock);
 
   // Allocate kernel stack.
@@ -123,7 +144,7 @@ userinit(void)
   struct proc *p;
   extern char _binary_initcode_start[], _binary_initcode_size[];
 
-  p = allocproc();
+  p = allocproc(0);     // Alocando o processo inicial com o valor default de tickets
   
   initproc = p;
   if((p->pgdir = setupkvm()) == 0)
@@ -138,6 +159,7 @@ userinit(void)
   p->tf->eflags = FL_IF;
   p->tf->esp = PGSIZE;
   p->tf->eip = 0;  // beginning of initcode.S
+  p->tickets = DEFAULT_TICKETS; // Primeiro processo de usuário recebe o valor default de tickets
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
@@ -177,15 +199,18 @@ growproc(int n)
 // Create a new process copying p as the parent.
 // Sets up stack to return as if from system call.
 // Caller must set state of returned proc to RUNNABLE.
+// A função fork() cria um novo processo filho, que é uma cópia do processo pai.
+// A função fork() é chamada pela função exec().
+// A função exec() carrega um novo programa no processo atual.
 int
-fork(void)
+fork(int tickets)
 {
   int i, pid;
   struct proc *np;
   struct proc *curproc = myproc();
 
   // Allocate process.
-  if((np = allocproc()) == 0){
+  if((np = allocproc(tickets)) == 0){     // Alocando o processo filho com o valor de tickets passado como parametro
     return -1;
   }
 
@@ -311,6 +336,51 @@ wait(void)
   }
 }
 
+
+// Funcoes auxiliares para o escalonamento de tickets
+// Return a integer between 0 and ((2^32 - 1) / 2), which is 2147483647.
+uint
+random(void)
+{
+  // Take from http://stackoverflow.com/questions/1167253/implementation-of-rand
+  static unsigned int z1 = 12345, z2 = 12345, z3 = 12345, z4 = 12345;
+  unsigned int b;
+  b  = ((z1 << 6) ^ z1) >> 13;
+  z1 = ((z1 & 4294967294U) << 18) ^ b;
+  b  = ((z2 << 2) ^ z2) >> 27; 
+  z2 = ((z2 & 4294967288U) << 2) ^ b;
+  b  = ((z3 << 13) ^ z3) >> 21;
+  z3 = ((z3 & 4294967280U) << 7) ^ b;
+  b  = ((z4 << 3) ^ z4) >> 12;
+  z4 = ((z4 & 4294967168U) << 13) ^ b;
+
+  return (z1 ^ z2 ^ z3 ^ z4) / 2;
+}
+
+// Return a random integer between a given range.
+int
+randomrange(int lo, int hi)
+{
+  if (hi < lo) {
+    int tmp = lo;
+    lo = hi;
+    hi = tmp;
+  }
+  int range = hi - lo + 1;
+  return random() % (range) + lo;
+}
+
+int countTickets(){
+  int count = 0;
+  struct proc *p;
+  for(p = ptable.proc; p < &ptable.proc[NPROC];p++){
+    if(p->state == RUNNABLE){
+      count += p->tickets;
+    }
+  }
+  return count;
+}
+
 //PAGEBREAK: 42
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
@@ -324,6 +394,8 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
+  //struct proc *chosen = myproc();
+  int totalTickets, winner;
   c->proc = 0;
   
   for(;;){
@@ -332,26 +404,30 @@ scheduler(void)
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
+    totalTickets = countTickets(); // Conta o total de tickets dos processos RUNNABLE
 
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
+    if(totalTickets > 0){
+      winner = randomrange(1, 100) % totalTickets; // Sorteia um numero
+      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){ // Percorre a tabela de processos
+        if(p->state == RUNNABLE){ 
+          winner -= p->tickets; // Diminui o numero sorteado com o numero de tickets do processo
+          if(winner < 0){ // Se o numero sorteado for menor que 0, o processo foi sorteado
+            break;
+          }
+        }
+      }
 
-      swtch(&(c->scheduler), p->context);
-      switchkvm();
+      if(p->state == RUNNABLE){ 
+        c->proc = p; // Processo escolhido
+        switchuvm(p); // Carrega o novo contexto
+        p->state = RUNNING; // Muda o estado do processo para RUNNING
+        swtch(&(c->scheduler), p->context); // Troca de contexto
+        switchkvm(); // Volta para o kernel
 
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      c->proc = 0;
+        c->proc = 0; // Processo nao esta mais rodando
+      }
     }
-    release(&ptable.lock);
-
+    release(&ptable.lock); 
   }
 }
 
@@ -532,3 +608,30 @@ procdump(void)
     cprintf("\n");
   }
 }
+
+// current process status
+int
+cps()
+{
+  struct proc *p;
+  
+  // Enable interrupts on this processor.
+  sti();
+
+  // Loop over process table looking for process with pid.
+
+  acquire(&ptable.lock);
+  cprintf("NAME \t PID \t STATE \t\t TICKETS \t \n");
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->state == SLEEPING)
+      cprintf("%s \t %d \t SLEEPING \t %d \n", p->name, p->pid, p->tickets);
+    else if(p->state == RUNNING)
+      cprintf("%s \t %d \t RUNNING \t %d \n", p->name, p->pid, p->tickets);
+    else if(p->state == RUNNABLE)
+      cprintf("%s \t %d \t RUNNABLE \t %d \n", p->name, p->pid, p->tickets);
+  }
+  release(&ptable.lock);
+
+  return 22;
+}
+
